@@ -22,6 +22,9 @@
         [Test]
         public async Task Should_expire_due_messages()
         {
+            var auditRetentionValue = ConfigurationManager.AppSettings.Get("ServiceControl/AuditRetentionPeriod");
+            var errorRetentionValue = ConfigurationManager.AppSettings.Get("ServiceControl/ErrorRetentionPeriod");
+            
             ConfigurationManager.AppSettings.Set("ServiceControl/AuditRetentionPeriod", "00:00:00:01");
             ConfigurationManager.AppSettings.Set("ServiceControl/ErrorRetentionPeriod", "00:00:00:01");
 
@@ -97,7 +100,8 @@
             {
                 store.Dispose();
                 Directory.Delete(compiledIndexCacheDirectory, true);
-                ConfigurationManager.AppSettings.Clear();
+                ConfigurationManager.AppSettings.Set("ServiceControl/AuditRetentionPeriod", auditRetentionValue);
+                ConfigurationManager.AppSettings.Set("ServiceControl/ErrorRetentionPeriod", errorRetentionValue);
             }
         }
     }
