@@ -6,8 +6,9 @@
     using System.Configuration;
     using System.IO;
     using System.Threading.Tasks;
-    using MessageAuditing;
+    using MessageFailures;
     using NUnit.Framework;
+    using Raven.Abstractions;
     using Raven.Client;
     using Raven.Client.Embedded;
     using Raven.Client.Indexes;
@@ -17,10 +18,10 @@
     using ServiceControl.Infrastructure.RavenDB.Expiration;
 
     [TestFixture]
-    public class AuditMessageExpirationTests
+    public class ErrorMessageExpirationTests
     {
         [Test]
-        public async Task Should_expired_due_messages()
+        public async Task Should_expire_due_messages()
         {
             ConfigurationManager.AppSettings.Set("ServiceControl/AuditRetentionPeriod", "00:00:00:01");
             ConfigurationManager.AppSettings.Set("ServiceControl/ErrorRetentionPeriod", "00:00:00:01");
@@ -44,45 +45,38 @@
             };
             store.Configuration.Catalog.Catalogs.Add(new AssemblyCatalog(typeof(RavenBootstrapper).Assembly));
             store.Initialize();
+            IndexCreation.CreateIndexes(typeof(RavenBootstrapper).Assembly, store);
 
             try
             {
-                IndexCreation.CreateIndexes(typeof(RavenBootstrapper).Assembly, store);
-
                 var yesterday = DateTime.UtcNow.AddDays(-1);
+                SystemTime.UtcDateTime = () => yesterday;
 
                 var operation = store.BulkInsert();
                 for (var i = 0; i < 1000; i++)
                 {
                     var id = Guid.NewGuid().ToString();
-                    var messageMetadata = new Dictionary<string, object>
-                    {
-                        {"MessageId", id},
-                        {"BodyNotStored", true},
-                        {"OtherStuff", "NotInteresting"}
-                    };
-                    operation.Store(new ProcessedMessage {Id = id, ProcessedAt = yesterday, MessageMetadata = messageMetadata});
+                    var failedMessage = new FailedMessage { Id = id, ProcessingAttempts = new List<FailedMessage.ProcessingAttempt> { new FailedMessage.ProcessingAttempt { MessageId = id }}, Status = FailedMessageStatus.Resolved };
+                    operation.Store(failedMessage);
                 }
 
                 await operation.DisposeAsync();
 
                 var tomorrow = DateTime.UtcNow.AddDays(1);
+                SystemTime.UtcDateTime = () => tomorrow;
 
                 operation = store.BulkInsert();
                 for (var i = 0; i < 50; i++)
                 {
                     var id = Guid.NewGuid().ToString();
-                    var messageMetadata = new Dictionary<string, object>
-                    {
-                        {"MessageId", id},
-                        {"BodyNotStored", true},
-                        {"OtherStuff", "NotInteresting"}
-                    };
-                    operation.Store(new ProcessedMessage {Id = id, ProcessedAt = tomorrow, MessageMetadata = messageMetadata});
+                    var failedMessage = new FailedMessage { Id = id, ProcessingAttempts = new List<FailedMessage.ProcessingAttempt> { new FailedMessage.ProcessingAttempt { MessageId = id }}, Status = FailedMessageStatus.Resolved };
+                    operation.Store(failedMessage);
                 }
 
                 await operation.DisposeAsync();
 
+                SystemTime.UtcDateTime = () => DateTime.UtcNow;
+                
                 store.WaitForIndexing();
 
                 ExpiredDocumentsCleaner.RunCleanup(2000, store.DocumentDatabase, settings);
@@ -91,13 +85,14 @@
 
                 using (var session = store.OpenAsyncSession())
                 {
-                    Assert.AreEqual(50, await session.Query<ProcessedMessage, ExpiryProcessedMessageIndex>().Select(x => x.Id).CountAsync());
+                    Assert.AreEqual(50, await session.Query<FailedMessage, ExpiryErrorMessageIndex>().Select(x => x.Id).CountAsync());
                 }
             }
             finally
             {
                 store.Dispose();
                 Directory.Delete(compiledIndexCacheDirectory, true);
+                ConfigurationManager.AppSettings.Clear();
             }
         }
     }
