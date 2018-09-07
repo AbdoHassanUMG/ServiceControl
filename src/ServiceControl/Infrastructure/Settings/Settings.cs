@@ -15,8 +15,9 @@
 
     public class Settings
     {
-        public Settings(string serviceName = null)
+        public Settings(string serviceName = null, bool validateConfiguration = true)
         {
+            ValidateConfiguration = ValidateConfiguration;
             ServiceName = serviceName;
 
             if (string.IsNullOrEmpty(serviceName))
@@ -57,7 +58,11 @@
 
         public bool RunInMemory { get; set; }
 
-        public bool ValidateConfiguration => SettingsReader<bool>.Read("ValidateConfig", true);
+        public bool ValidateConfiguration
+        {
+            get => SettingsReader<bool>.Read("ValidateConfig", validateConfiguration);
+            set => validateConfiguration = value;
+        }
 
         public int ExternalIntegrationsDispatchingBatchSize => SettingsReader<int>.Read("ExternalIntegrationsDispatchingBatchSize", 100);
 
@@ -310,23 +315,33 @@
             return SettingsReader<string>.Read("DbPath", defaultPath);
         }
 
-        private static bool GetForwardErrorMessages()
+        private bool GetForwardErrorMessages()
         {
             var forwardErrorMessages = NullableSettingsReader<bool>.Read("ForwardErrorMessages");
             if (forwardErrorMessages.HasValue)
             {
                 return forwardErrorMessages.Value;
             }
+            
+            if (!ValidateConfiguration)
+            {
+                return false;
+            }
 
             throw new Exception("ForwardErrorMessages settings is missing, please make sure it is included.");
         }
 
-        private static bool GetForwardAuditMessages()
+        private bool GetForwardAuditMessages()
         {
             var forwardAuditMessages = NullableSettingsReader<bool>.Read("ForwardAuditMessages");
             if (forwardAuditMessages.HasValue)
             {
                 return forwardAuditMessages.Value;
+            }
+
+            if (!ValidateConfiguration)
+            {
+                return false;
             }
 
             throw new Exception("ForwardAuditMessages settings is missing, please make sure it is included.");
@@ -503,6 +518,7 @@
         int expirationProcessBatchSize = SettingsReader<int>.Read("ExpirationProcessBatchSize", ExpirationProcessBatchSizeDefault);
         int expirationProcessTimerInSeconds = SettingsReader<int>.Read("ExpirationProcessTimerInSeconds", ExpirationProcessTimerInSecondsDefault);
         int maxBodySizeToStore = SettingsReader<int>.Read("MaxBodySizeToStore", MaxBodySizeToStoreDefault);
+        bool validateConfiguration;
         public const string DEFAULT_SERVICE_NAME = "Particular.ServiceControl";
         public const string Disabled = "!disable";
 
